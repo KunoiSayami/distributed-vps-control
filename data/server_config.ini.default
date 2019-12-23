@@ -1,0 +1,15 @@
+[account]
+api_ud =
+api_hash =
+bot_id =
+owner =
+
+[mysql]
+host =
+user =
+password =
+database =
+
+[http]
+addr =
+port =

@@ -1,0 +1,9 @@
+[server]
+address =
+
+[auth]
+key =
+
+[proxy]
+address =
+port =
