@@ -1,15 +1,52 @@
 # -*- coding: utf-8 -*-
+# control_bots.py
+# Copyright (C) 2017-2020 KunoiSayami
+#
+# This module is part of WelcomeBot-Telegram and is released under
+# the AGPL v3 License: https://www.gnu.org/licenses/agpl-3.0.txt
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 from configparser import ConfigParser
-import json
-from http.server import HTTPServer, SimpleHTTPRequestHandler, HTTPStatus
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 import threading
 import re
-from pyrogram import Client
+from pyrogram import Client, CallbackQuery, CallbackQueryHandler, MessageHandler, \
+	Message, InlineKeyboardMarkup, InlineKeyboardButton, Filters
 from httpserver import postable_simple_server
+from utils import mysqldb
 
-
-class bot_client:
+class rewrited_server(postable_simple_server):
 	INFOMATCH = re.compile(r'/info\?[a-f\d]{64}')
+	bot_self = None
+	def process_get(self, http_self: SimpleHTTPRequestHandler) -> bool:
+		return False
+
+	def process_post(self, payload: dict) -> dict:
+		if self.path == '/register':
+			# {username: str}
+			real_ip = self.headers.get('X-Real-IP', '127.0.0.1')
+			rt = mysqldb.get_instance().insert_new_client(payload.get('username'), real_ip)
+			payload.update({'ip': real_ip})
+			bot_client.get_inistance().request_confirm(rt.cid, payload)
+			return {'status': 200, 'code': 1, 'uid': rt.uid}
+		elif self.path == '/fetch':
+			# {username: str, uid: int}
+			if mysqldb.get_instance().query_approve_status(payload):
+				return {'status': 200, 'code': 2}
+			return {'status': 200, 'code': 300}
+
+class _bot_client:
 	def __init__(self):
 		self.config = ConfigParser()
 		self.config.read('data/server_config.ini')
@@ -22,20 +59,68 @@ class bot_client:
 			self.config['account']['api_key'],
 			bot_token=self.config['account']['bot_key']
 		)
-		
-		self.owner = int(self.config['account']['owner'])
+
+		self.conn = mysqldb.init_instance(
+			self.config['mysql']['host'],
+			self.config['mysql']['user'],
+			self.config['mysql']['password'],
+			self.config['mysql']['database']
+		)
+
+		self.owner = self.config.getint('account', 'owner')
 
 		self.http_server = HTTPServer(
 			(self.config['http']['addr'], self.config['http']['port']), postable_simple_server
 		)
 
+		self.http_thread = None
+		bot_client.bot_self = self
+		self._basic_filter = Filters.chat(self.owner)
 
-	
+	def init_handle(self):
+		self.botapp.add_handler(MessageHandler(self.handle_status, self._basic_filter))
+		self.botapp.add_handler(CallbackQueryHandler(self.handle_callback_query))
+
+	def idle(self):
+		try:
+			self.botapp.idle()
+		except InterruptedError:
+			pass
+
+	def handle_status(self, _client: Client, _msg: Message):
+		pass
+
+	def request_confirm(self, cid: int, payload: dict):
+		self.botapp.send_message(self.owner, 'Do you want to approve this machine\n**Username**: `{}`\nIP Address:`{}`'.format(
+			payload.get('username'), payload.get('ip')
+		), 'markdown', reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+			InlineKeyboardButton('approve', callback_data=f'approve {cid}')
+		]]))
+
 	def start(self):
-		threading.Thread(target=self.http_server.serve_forever, daemon=True).start()
+		self.http_thread = threading.Thread(target=self.http_server.serve_forever, daemon=True)
+		self.http_thread.start()
 		self.botapp.start()
 
-	def process_get(self, http_self: SimpleHTTPRequestHandler):
-		if http_self.path.startswith('/info?'):
-			if not self.INFOMATCH.match(http_self.path) or http_self.path.split('?')[-1] not in self.client_pool:
-				http_self.send_error(HTTPStatus.FORBIDDEN, 'Authorized only')
+	def handle_callback_query(self, client: Client, msg: CallbackQuery):
+		data = msg.data.split()
+		if data[0] == 'approve':
+			self.conn.approve_new_client(data[1])
+
+	def stop(self):
+		self.botapp.stop()
+		self.conn.close()
+
+class bot_client(_bot_client):
+	bot_self = None
+	@staticmethod
+	def get_inistance() -> _bot_client:
+		if bot_client.bot_self is None:
+			bot_client.bot_self = bot_client()
+		return bot_client.bot_self
+
+if __name__ == "__main__":
+	bot = bot_client.get_inistance()
+	bot.start()
+	bot.idle()
+	bot.stop()
