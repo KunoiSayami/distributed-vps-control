@@ -17,11 +17,14 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-from configparser import ConfigParser
-import requests
 import uuid
-from libpy3.mysqldb import mysqldb as _mysqldbEx
+from configparser import ConfigParser
+
 import pymysql
+import requests
+
+from libpy3.mysqldb import mysqldb as _mysqldbEx
+
 
 class clientQuery:
 	def __init__(self):
@@ -58,9 +61,11 @@ class clientObj:
 	def __init__(self, cid: int, uid: str):
 		self._uid = uid
 		self._cid = cid
+
 	@property
 	def uid(self):
 		return self._uid
+
 	@property
 	def cid(self):
 		return self._cid
@@ -70,16 +75,20 @@ class _mysqldb(_mysqldbEx):
 		uid = uuid.uuid4()
 		self.execute("INSERT INTO `pending_client` (`username`, `ip`, `uid`) VALUE (%s, %s, %s)", (username, ip, uid))
 		return clientObj(self.query1("SELECT LAST_INSERT_ID()")['LAST_INSERT_ID()'], uid)
+
 	def _insert_new_approved_client(self, client_id: int, username: str, ip: str, uid: str):
 		self.execute("INSERT INTO `client_pool` (`client_id`, `username`, `ip`, `uuid`) VALUE (%s, %s, %s, %s)",
 			(client_id, username, ip, uid))
+
 	def approve_new_client(self, pool_id: int):
 		sqlObj = self.query1("SELECT * FROM `pending_client` WHERE `id` = %s", pool_id)
 		if sqlObj is not None:
 			self._insert_new_approved_client(pool_id, sqlObj['username'], sqlObj['ip'], sqlObj['uid'])
 		return None
+
 	def query_approve_status(self, payload: dict) -> bool:
 		return self._query_approve_status(payload.get('username'), payload.get('uid'))
+
 	def _query_approve_status(self, username: str, uid: str) -> bool:
 		return self.query1("SELECT * FROM `client_pool` WHERE `username` = %s AND `uid` = %s", (username, uid)) is not None
 
@@ -101,4 +110,3 @@ class mysqldb(_mysqldb):
 	@staticmethod
 	def get_instance() -> _mysqldb:
 		return mysqldb._self
-

@@ -17,15 +17,16 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-from http.server import SimpleHTTPRequestHandler, HTTPServer
 import json
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 
-class postable_simple_server(SimpleHTTPRequestHandler):
+
+class PostableSimpleServer(SimpleHTTPRequestHandler):
 
 	def process_get(self):
 		return False
 
-	def process_post(self, _payload: str) -> dict:
+	def process_post(self, payload: str) -> dict:
 		return {}
 
 	def _set_headers(self):
@@ -35,7 +36,7 @@ class postable_simple_server(SimpleHTTPRequestHandler):
 
 	def do_GET(self):
 		"""Serve a GET request."""
-		if postable_simple_server.process_get(self):
+		if PostableSimpleServer.process_get(self):
 			return
 		f = self.send_head()
 		if f:
@@ -51,5 +52,5 @@ class postable_simple_server(SimpleHTTPRequestHandler):
 		self.wfile.write(json.dumps(return_payload))
 
 if __name__ == "__main__":
-	server = HTTPServer(('127.0.0.1', 8080), postable_simple_server)
+	server = HTTPServer(('127.0.0.1', 8080), PostableSimpleServer)
 	server.serve_forever()

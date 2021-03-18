@@ -17,19 +17,23 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+import re
+import threading
 from configparser import ConfigParser
 from http.server import HTTPServer, SimpleHTTPRequestHandler
-import threading
-import re
-from pyrogram import Client, CallbackQuery, CallbackQueryHandler, MessageHandler, \
-	Message, InlineKeyboardMarkup, InlineKeyboardButton, Filters
-from httpserver import postable_simple_server
+
+from pyrogram import (CallbackQuery, CallbackQueryHandler, Client, Filters,
+                      InlineKeyboardButton, InlineKeyboardMarkup, Message,
+                      MessageHandler)
+
+from httpserver import PostableSimpleServer
 from utils import mysqldb
 
-class rewrited_server(postable_simple_server):
+
+class RewritedServer(PostableSimpleServer):
 	INFOMATCH = re.compile(r'/info\?[a-f\d]{64}')
 	bot_self = None
-	def process_get(self, http_self: SimpleHTTPRequestHandler) -> bool:
+	def process_get(self, payload: SimpleHTTPRequestHandler) -> bool:
 		return False
 
 	def process_post(self, payload: dict) -> dict:
@@ -38,7 +42,7 @@ class rewrited_server(postable_simple_server):
 			real_ip = self.headers.get('X-Real-IP', '127.0.0.1')
 			rt = mysqldb.get_instance().insert_new_client(payload.get('username'), real_ip)
 			payload.update({'ip': real_ip})
-			bot_client.get_inistance().request_confirm(rt.cid, payload)
+			BotClient.get_inistance().request_confirm(rt.cid, payload)
 			return {'status': 200, 'code': 1, 'uid': rt.uid}
 		elif self.path == '/fetch':
 			# {username: str, uid: int}
@@ -46,7 +50,7 @@ class rewrited_server(postable_simple_server):
 				return {'status': 200, 'code': 2}
 			return {'status': 200, 'code': 300}
 
-class _bot_client:
+class _BotClient:
 	def __init__(self):
 		self.config = ConfigParser()
 		self.config.read('data/server_config.ini')
@@ -70,11 +74,10 @@ class _bot_client:
 		self.owner = self.config.getint('account', 'owner')
 
 		self.http_server = HTTPServer(
-			(self.config['http']['addr'], self.config['http']['port']), postable_simple_server
+			(self.config['http']['addr'], self.config['http']['port']), RewritedServer
 		)
 
 		self.http_thread = None
-		bot_client.bot_self = self
 		self._basic_filter = Filters.chat(self.owner)
 
 	def init_handle(self):
@@ -111,16 +114,20 @@ class _bot_client:
 		self.botapp.stop()
 		self.conn.close()
 
-class bot_client(_bot_client):
-	bot_self = None
+class BotClient(_BotClient):
+	_bot_self = None
 	@staticmethod
-	def get_inistance() -> _bot_client:
-		if bot_client.bot_self is None:
-			bot_client.bot_self = bot_client()
-		return bot_client.bot_self
+	def get_inistance() -> _BotClient:
+		if BotClient._bot_self is None:
+			BotClient._bot_self = BotClient()
+		return BotClient._bot_self
+	
+	@staticmethod
+	def init_instance() -> _BotClient:
+		return BotClient._bot_self
 
 if __name__ == "__main__":
-	bot = bot_client.get_inistance()
+	bot = BotClient.get_inistance()
 	bot.start()
 	bot.idle()
 	bot.stop()
